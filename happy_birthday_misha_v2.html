@@ -1,0 +1,272 @@
+
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+#stage{
+  width:100%;height:560px;position:relative;overflow:hidden;
+  background:#100820;border-radius:12px;cursor:default;user-select:none;
+}
+#logo{
+  position:absolute;top:13px;left:15px;font-size:11px;font-weight:500;
+  color:rgba(255,255,255,0.4);font-family:monospace;letter-spacing:.5px;z-index:100;pointer-events:none;
+}
+.lt{
+  position:absolute;top:0;left:0;
+  font-family:'Arial Black',Arial,sans-serif;font-weight:900;
+  cursor:grab;touch-action:none;line-height:1;
+  transform-origin:center bottom;
+}
+.lt:active{cursor:grabbing;}
+</style>
+
+<div id="stage">
+  <div id="logo">Turms‑T Industries</div>
+</div>
+
+<script>
+const stage = document.getElementById('stage');
+const SW = () => stage.offsetWidth;
+const SH = () => stage.offsetHeight;
+const FLOOR = () => SH() - 48;
+
+const colors = ['#FFD700','#FF6B9D','#7DF9FF','#98FF98','#FFB347','#FF6B6B','#DDA0DD','#87CEEB','#F0E68C','#FF69B4','#00FFCD','#FF8C00','#C77DFF','#4ECDC4','#FF4500'];
+
+for(let i=0;i<55;i++){
+  const s=document.createElement('div');
+  s.style.cssText=`position:absolute;border-radius:50%;background:white;pointer-events:none;
+    width:${Math.random()<0.3?3:2}px;height:${Math.random()<0.3?3:2}px;
+    left:${Math.random()*100}%;top:${Math.random()*85}%;
+    opacity:${(Math.random()*0.45+0.08).toFixed(2)};`;
+  stage.appendChild(s);
+}
+
+const lines = [
+  { text:'С ДНЁМ', size:52 },
+  { text:'РОЖДЕНИЯ', size:46 },
+  { text:'МИША!', size:60 }
+];
+
+const LINE_Y = [80, 175, 278];
+const letters = [];
+let ci = 0;
+let canDrag = false;
+
+function measureChar(ch, size) {
+  const t = document.createElement('div');
+  t.style.cssText = `position:absolute;visibility:hidden;font-family:'Arial Black',Arial,sans-serif;font-weight:900;font-size:${size}px;line-height:1;white-space:pre;`;
+  t.textContent = ch;
+  document.body.appendChild(t);
+  const w = t.offsetWidth;
+  const h = t.offsetHeight;
+  document.body.removeChild(t);
+  return {w, h};
+}
+
+function buildLetters() {
+  const sw = SW();
+  lines.forEach((line, li) => {
+    const chars = line.text.split('');
+    const measured = chars.map(ch => measureChar(ch, line.size));
+    const gap = line.size * 0.06;
+    const totalW = measured.reduce((s,m)=>s+m.w,0) + gap*(chars.length-1);
+    let cx = (sw - totalW) / 2;
+    const targetY = LINE_Y[li];
+
+    chars.forEach((ch, i) => {
+      const {w, h} = measured[i];
+      const el = document.createElement('div');
+      el.className = 'lt';
+      el.textContent = ch;
+      el.style.fontSize = line.size + 'px';
+      el.style.color = colors[ci % colors.length];
+      el.style.width = w + 'px';
+      el.style.height = h + 'px';
+      stage.appendChild(el);
+
+      const tx = cx;
+      const ty = targetY;
+
+      const lt = {
+        el, tx, ty, w, h,
+        x: tx, y: -h - 20,
+        vx:0, vy:0,
+        phase:'hover',
+        settled:false, dragging:false
+      };
+      letters.push(lt);
+      setPos(lt);
+      ci++;
+      cx += w + gap;
+    });
+  });
+}
+
+function setPos(lt) {
+  lt.el.style.transform = `translate(${lt.x|0}px,${lt.y|0}px)`;
+}
+
+buildLetters();
+
+const T_APPEAR = 400;
+const T_HOVER  = T_APPEAR + 800;
+const T_DROP   = T_HOVER + 2200;
+let startTs = null;
+
+function easeOutBack(t) {
+  const c1=1.70158, c3=c1+1;
+  return 1+c3*Math.pow(t-1,3)+c1*Math.pow(t-1,2);
+}
+function easeInOutCubic(t) {
+  return t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;
+}
+
+function introLoop(ts) {
+  if (!startTs) startTs = ts;
+  const elapsed = ts - startTs;
+
+  letters.forEach((lt, idx) => {
+    if (lt.phase !== 'hover') return;
+
+    const delay = idx * 38;
+    const t1 = Math.max(0, elapsed - T_APPEAR - delay);
+    const tNorm = Math.min(t1 / 420, 1);
+    const ease = easeOutBack(tNorm);
+
+    const startY = -lt.h - 20;
+    lt.y = startY + (lt.ty - startY) * ease;
+    lt.x = lt.tx;
+    setPos(lt);
+  });
+
+  if (elapsed >= T_DROP) {
+    letters.forEach(lt => {
+      if (lt.phase === 'hover') {
+        lt.phase = 'physics';
+        lt.y = lt.ty;
+        lt.x = lt.tx;
+        lt.vy = 0;
+        lt.vx = (Math.random()-0.5)*0.4;
+      }
+    });
+    canDrag = true;
+    requestAnimationFrame(physicsLoop);
+    return;
+  }
+
+  requestAnimationFrame(introLoop);
+}
+
+requestAnimationFrame(introLoop);
+
+const GRAVITY = 0.72;
+const BOUNCE  = 0.52;
+const FRIC    = 0.82;
+const REST    = 1.1;
+
+function physicsLoop() {
+  const floor = FLOOR();
+  const sw = SW();
+
+  letters.forEach(lt => {
+    if (lt.phase !== 'physics' || lt.dragging) return;
+    if (lt.settled) return;
+
+    lt.vy += GRAVITY;
+    lt.x += lt.vx;
+    lt.y += lt.vy;
+
+    if (lt.y + lt.h >= floor) {
+      lt.y = floor - lt.h;
+      lt.vy *= -BOUNCE;
+      lt.vx *= FRIC;
+      if (Math.abs(lt.vy) < REST) {
+        lt.vy = 0;
+        if (Math.abs(lt.vx) < 0.12) { lt.vx = 0; lt.settled = true; }
+      }
+    }
+    if (lt.x < 0) { lt.x = 0; lt.vx = Math.abs(lt.vx)*0.5; }
+    if (lt.x + lt.w > sw) { lt.x = sw - lt.w; lt.vx = -Math.abs(lt.vx)*0.5; }
+
+    setPos(lt);
+  });
+
+  requestAnimationFrame(physicsLoop);
+}
+
+let dragged = null, dOffX = 0, dOffY = 0, pvX = 0, pvY = 0, velX = 0, velY = 0;
+
+function evXY(e) {
+  const t = e.touches ? e.touches[0] : e;
+  const r = stage.getBoundingClientRect();
+  return { x: t.clientX - r.left, y: t.clientY - r.top };
+}
+
+stage.addEventListener('mousedown', onDown);
+stage.addEventListener('touchstart', onDown, {passive:false});
+
+function onDown(e) {
+  if (!canDrag) return;
+  if (e.cancelable) e.preventDefault();
+  const {x, y} = evXY(e);
+
+  for (let i = letters.length-1; i >= 0; i--) {
+    const lt = letters[i];
+    if (lt.phase !== 'physics') continue;
+    if (x >= lt.x && x <= lt.x+lt.w && y >= lt.y && y <= lt.y+lt.h) {
+      dragged = lt;
+      lt.dragging = true;
+      lt.settled = false;
+      dOffX = x - lt.x;
+      dOffY = y - lt.y;
+      pvX = x; pvY = y;
+      velX = 0; velY = 0;
+      lt.el.style.zIndex = 99;
+      break;
+    }
+  }
+}
+
+window.addEventListener('mousemove', onMove);
+window.addEventListener('touchmove', onMove, {passive:false});
+
+function onMove(e) {
+  if (!dragged) return;
+  if (e.cancelable) e.preventDefault();
+  const {x, y} = evXY(e);
+  velX = x - pvX; velY = y - pvY;
+  pvX = x; pvY = y;
+  dragged.x = x - dOffX;
+  dragged.y = y - dOffY;
+  setPos(dragged);
+}
+
+window.addEventListener('mouseup', onUp);
+window.addEventListener('touchend', onUp);
+
+function onUp(e) {
+  if (!dragged) return;
+  dragged.vx = velX * 0.85;
+  dragged.vy = velY * 0.85;
+  dragged.dragging = false;
+  dragged.settled = false;
+  dragged.el.style.zIndex = '';
+  spawnParticles(dragged.x + dragged.w/2, dragged.y + dragged.h/2, dragged.el.style.color);
+  dragged = null;
+}
+
+function spawnParticles(x, y, color) {
+  for (let i=0; i<7; i++) {
+    const p = document.createElement('div');
+    const angle = Math.random()*Math.PI*2;
+    const dist = Math.random()*35+10;
+    p.style.cssText = `position:absolute;width:5px;height:5px;border-radius:50%;
+      background:${color};left:${x}px;top:${y}px;pointer-events:none;z-index:200;
+      transition:transform .55s ease-out,opacity .55s;`;
+    stage.appendChild(p);
+    requestAnimationFrame(()=>{
+      p.style.transform=`translate(${Math.cos(angle)*dist}px,${Math.sin(angle)*dist-15}px)`;
+      p.style.opacity='0';
+    });
+    setTimeout(()=>p.remove(), 620);
+  }
+}
+</script>
